@@ -2,16 +2,19 @@ module Main where
 
 import Data.Char
 import System.IO
+import System.Environment
 
 
 main :: IO ()
 main = do
+        args <- getArgs
+        let fn = if (length args) < 1
+            then error "Path to a note expected!"
+            else args !! 0
         hSetBuffering stdout NoBuffering
         newline
         putStrLn "     -----  Notes Parser  -----"
         newline
-        putStr "Enter filename: "
-        fn <- getLine
         content <- readFile fn
         newline
         putStrLn "--------------  Start of Content  --------------"
