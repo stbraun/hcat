@@ -24,6 +24,13 @@ dependencies:
 
 library:
   source-dirs: src
+  ghc-options:
+  - -threaded
+  - -rtsopts
+  - -with-rtsopts=-N
+  - -package bytestring
+  - -package text
+  - -package process
 
 executables:
   parsenotes-exe:
@@ -33,6 +40,8 @@ executables:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
+    - -package bytestring
+    - -package text
     dependencies:
     - parsenotes
 
