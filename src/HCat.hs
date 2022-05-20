@@ -29,7 +29,7 @@ runHCat = do
     hSetBuffering stdout NoBuffering
     finfo <- fileInfo targetFilePath
     let pages = paginate termSize finfo contents
-    showPages pages
+    showPages 0 pages
 
 
 eitherToErr :: Show a => Either a b -> IO b
@@ -48,7 +48,7 @@ handleArgs =
                 _   -> Left "Multiple files not supported."
 
 
-data ContinueCancel = Continue | Cancel deriving (Eq, Show)
+data ContinueCancel = Previous | Continue | Cancel deriving (Eq, Show)
 
 
 clearScreen :: IO ()
@@ -62,18 +62,21 @@ getContinue = do
     c <- hGetChar stdin
     case c of
         ' ' -> return Continue
+        'n' -> return Continue
+        'p' -> return Previous
         'q' -> return Cancel
         _   -> getContinue
 
 
-showPages :: [Text.Text] -> IO ()
-showPages [] = return ()
-showPages (page:pages) = do
+showPages :: Int -> [Text.Text] -> IO ()
+showPages _ [] = return ()
+showPages page pages = do
     clearScreen
-    TextIO.putStrLn page
+    TextIO.putStrLn $ pages !! page
     cont <- getContinue
     case cont of
-        Continue -> showPages pages
+        Previous -> showPages (if page > 1 then (page - 1) else 0) pages
+        Continue -> showPages (page + 1) pages
         Cancel  -> return ()
 
 
