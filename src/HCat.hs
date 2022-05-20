@@ -48,11 +48,17 @@ handleArgs =
                 _   -> Left "Multiple files not supported."
 
 
-data ContinueCancel = Previous | Continue | Cancel deriving (Eq, Show)
+data ContinueCancel = Help | Previous | Continue | Cancel deriving (Eq, Show)
 
 
 clearScreen :: IO ()
 clearScreen = BS.putStr "\^[[1J\^[[1;1H"
+
+reverseVideo :: IO ()
+reverseVideo = BS.putStr "\^[[7m"
+
+resetVideo :: IO ()
+resetVideo = BS.putStr "\^[[0m"
 
 
 getContinue :: IO ContinueCancel
@@ -61,11 +67,33 @@ getContinue = do
     hSetEcho stdin False
     c <- hGetChar stdin
     case c of
+        'h' -> return Help
         ' ' -> return Continue
         'n' -> return Continue
         'p' -> return Previous
         'q' -> return Cancel
         _   -> getContinue
+
+
+showHelp:: Int -> [Text.Text] -> IO ()
+showHelp page pages = do
+    clearScreen
+    reverseVideo
+    putStrLn "=== HCat Help ==="
+    resetVideo
+    putStrLn ""
+    putStrLn "usage: HCat <filepath>"
+    putStrLn ""
+    putStrLn "Commands:"
+    putStrLn "h - show this help"
+    putStrLn "<space> - next page"
+    putStrLn "n - next page"
+    putStrLn "p - previous page"
+    putStrLn "q - quit"
+    putStrLn ""
+    putStrLn "Press any key to return to file view."
+    hGetChar stdin
+    showPages page pages
 
 
 showPages :: Int -> [Text.Text] -> IO ()
@@ -75,6 +103,7 @@ showPages page pages = do
     TextIO.putStrLn $ pages !! page
     cont <- getContinue
     case cont of
+        Help -> showHelp page pages
         Previous -> showPages (if page > 1 then (page - 1) else 0) pages
         Continue -> showPages (page + 1) pages
         Cancel  -> return ()
