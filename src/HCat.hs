@@ -1,6 +1,8 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RecordWildCards #-}
+
 
 module HCat where
 
@@ -13,19 +15,21 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import qualified Control.Exception as Exception
-
+import qualified Data.Time.Clock as Clock
+import qualified Data.Time.Format as TimeFormat
+import qualified Data.Time.Clock.POSIX as PosixClock
+import qualified System.Directory as Directory
+import qualified Text.Printf as Printf
 
 runHCat :: IO ()
-runHCat =
-    handleArgs
-    >>= eitherToErr
-    >>= flip openFile ReadMode
-    >>= TextIO.hGetContents
-    >>= \contents ->
-           getTerminalSize
-           >>= \termSize ->
-              let pages = paginate termSize contents
-              in showPages pages
+runHCat = do
+    targetFilePath <- eitherToErr =<< handleArgs
+    contents <- TextIO.hGetContents =<< openFile targetFilePath ReadMode
+    termSize <- getTerminalSize
+    hSetBuffering stdout NoBuffering
+    finfo <- fileInfo targetFilePath
+    let pages = paginate termSize finfo contents
+    showPages pages
 
 
 eitherToErr :: Show a => Either a b -> IO b
@@ -53,24 +57,24 @@ clearScreen = BS.putStr "\^[[1J\^[[1;1H"
 
 getContinue :: IO ContinueCancel
 getContinue = do
-                hSetBuffering stdin NoBuffering
-                hSetEcho stdin False
-                c <- hGetChar stdin
-                case c of
-                    ' ' -> return Continue
-                    'q' -> return Cancel
-                    _   -> getContinue
+    hSetBuffering stdin NoBuffering
+    hSetEcho stdin False
+    c <- hGetChar stdin
+    case c of
+        ' ' -> return Continue
+        'q' -> return Cancel
+        _   -> getContinue
 
 
 showPages :: [Text.Text] -> IO ()
 showPages [] = return ()
-showPages (page:pages) =
+showPages (page:pages) = do
     clearScreen
-    >> TextIO.putStrLn page
-    >> getContinue
-    >>= \case
-            Continue -> showPages pages
-            Cancel  -> return ()
+    TextIO.putStrLn page
+    cont <- getContinue
+    case cont of
+        Continue -> showPages pages
+        Cancel  -> return ()
 
 
 groupsOf :: Int -> [a] -> [[a]]
@@ -102,12 +106,20 @@ data ScreenDimensions = ScreenDimensions {
     screenColumns :: Int
   } deriving Show
 
-paginate :: ScreenDimensions -> Text.Text -> [Text.Text]
-paginate (ScreenDimensions rows cols) text =
-  let unwrappedLines = Text.lines text
-      wrappedLines = concatMap (wordWrap cols) unwrappedLines
-      pageLines = groupsOf rows wrappedLines
-  in map Text.unlines pageLines
+
+paginate :: ScreenDimensions -> FileInfo -> Text.Text -> [Text.Text]
+paginate (ScreenDimensions rows cols) finfo text =
+    let
+        rows' = rows - 2
+        wrappedLines = concatMap (wordWrap cols) (Text.lines text)
+        pages = map (Text.unlines . padTo rows') $ groupsOf rows' wrappedLines
+        pageCount = length pages
+        statusLines = map (formatFileInfo finfo cols pageCount) [1..pageCount]
+    in zipWith (<>) pages statusLines
+    where
+        padTo :: Int -> [Text.Text] -> [Text.Text]
+        padTo lineCount rowsToPad =
+            take lineCount $ rowsToPad <> repeat ""
 
 
 getTerminalSize :: IO ScreenDimensions
@@ -118,15 +130,65 @@ getTerminalSize =
         _other   -> pure $ ScreenDimensions 25 80
     where
         tputScreenDimensions :: IO ScreenDimensions
-        tputScreenDimensions =
-            Process.readProcess "tput" ["lines"] ""
-            >>= \lines ->
-                Process.readProcess "tput" ["cols"] ""
-                >>= \cols ->
-                    let lines' = read $ init lines
-                        cols'  = read $ init cols
-                    in return $ ScreenDimensions lines' cols'
+        tputScreenDimensions = do
+            lines <- Process.readProcess "tput" ["lines"] ""
+            cols  <- Process.readProcess "tput" ["cols"] ""
+            let lines' = read $ init lines
+                cols'  = read $ init cols
+            return $ ScreenDimensions lines' cols'
 
 
+data FileInfo = FileInfo {
+    filePath :: FilePath,
+    fileSize :: Int,
+    fileMTime :: Clock.UTCTime,
+    fileReadable :: Bool,
+    fileWriteable :: Bool,
+    fileExecutable :: Bool
+} deriving Show
 
+
+fileInfo :: FilePath -> IO  FileInfo
+fileInfo filePath = do
+    perms <- Directory.getPermissions filePath
+    mtime <- Directory.getModificationTime filePath
+    size <- Text.length <$> TextIO.readFile filePath
+    return FileInfo {
+        filePath = filePath,
+        fileSize = size,
+        fileMTime = mtime,
+        fileReadable = Directory.readable perms,
+        fileWriteable = Directory.writable perms,
+        fileExecutable = Directory.executable perms
+    }
+
+
+formatFileInfo :: FileInfo -> Int -> Int -> Int -> Text.Text
+formatFileInfo FileInfo{..} maxWidth totalPages currentPage =
+    let
+        statusLine = Text.pack $
+            Printf.printf
+                "%s | permissions: %s | %d bytes | modified: %s | page: %d of %d"
+                filePath
+                permissionString
+                fileSize
+                timestamp
+                currentPage
+                totalPages
+        permissionString = [ if fileReadable then 'r' else '-',
+                             if fileWriteable then 'w' else '-',
+                             if fileExecutable then 'x' else '-' ]
+        timestamp = TimeFormat.formatTime TimeFormat.defaultTimeLocale "%F %T" fileMTime
+    in invertText (truncateStatus statusLine)
+    where
+        invertText inputStr =
+            let
+                reverseVideo = "\^[[7m"
+                resetVideo = "\^[[0m"
+            in reverseVideo <> inputStr <> resetVideo
+        truncateStatus statusLine
+          | maxWidth <= 3 = ""
+          | Text.length statusLine > maxWidth =
+                Text.take (maxWidth - 3) statusLine <> "..."
+          | otherwise = statusLine
 

@@ -31,6 +31,8 @@ library:
   - -package bytestring
   - -package text
   - -package process
+  - -package directory
+  - -package time
 
 executables:
   parsenotes-exe:
