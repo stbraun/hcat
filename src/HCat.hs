@@ -1,3 +1,8 @@
+-- |
+-- This module provides a pager or cat utility.
+-- The text is broken into pages based on the terminal size.
+-- Forward and backward scrolling are supported.
+
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE TypeApplications #-}
@@ -21,6 +26,9 @@ import qualified Data.Time.Clock.POSIX as PosixClock
 import qualified System.Directory as Directory
 import qualified Text.Printf as Printf
 
+
+-- |
+-- The top-level function.
 runHCat :: IO ()
 runHCat = do
     targetFilePath <- eitherToErr =<< handleArgs
@@ -32,11 +40,16 @@ runHCat = do
     showPages 0 pages
 
 
+-- |
+-- Takes an Either and throws an exception in error case (Left).
+-- Otherwise returns the Right value.
 eitherToErr :: Show a => Either a b -> IO b
 eitherToErr (Right a) = return a
 eitherToErr (Left e) = Exception.throwIO . IOError.userError $ show e
 
 
+-- |
+-- Parses and validates the command line arguments.
 handleArgs :: IO (Either String FilePath)
 handleArgs =
     parseArgs <$> Env.getArgs
@@ -48,19 +61,30 @@ handleArgs =
                 _   -> Left "Multiple files not supported."
 
 
+-- |
+-- The commands supported by the pager.
 data ContinueCancel = Help | Previous | Continue | Cancel deriving (Eq, Show)
 
 
+-- | Clear terminal.
 clearScreen :: IO ()
 clearScreen = BS.putStr "\^[[1J\^[[1;1H"
 
+
+-- |
+-- Switch video to reverse mode.
 reverseVideo :: IO ()
 reverseVideo = BS.putStr "\^[[7m"
 
+
+-- |
+-- Reset video to normal mode.
 resetVideo :: IO ()
 resetVideo = BS.putStr "\^[[0m"
 
 
+-- |
+-- Get keys and map to commands.
 getContinue :: IO ContinueCancel
 getContinue = do
     hSetBuffering stdin NoBuffering
@@ -75,6 +99,8 @@ getContinue = do
         _   -> getContinue
 
 
+-- |
+-- Show a simple help screen.
 showHelp:: Int -> [Text.Text] -> IO ()
 showHelp page pages = do
     clearScreen
@@ -96,6 +122,7 @@ showHelp page pages = do
     showPages page pages
 
 
+-- | Show and navigate pages.
 showPages :: Int -> [Text.Text] -> IO ()
 showPages _ [] = return ()
 showPages page pages = do
@@ -109,6 +136,8 @@ showPages page pages = do
         Cancel  -> return ()
 
 
+-- |
+-- Group text into pages.
 groupsOf :: Int -> [a] -> [[a]]
 groupsOf _ [] = []
 groupsOf n elems =
@@ -116,6 +145,8 @@ groupsOf n elems =
     in hd : groupsOf n tl
 
 
+-- |
+-- Wrap a line between words if possible.
 wordWrap :: Int -> Text.Text -> [Text.Text]
 wordWrap lineLength lineText
     | Text.length lineText <= lineLength = [lineText]
@@ -133,16 +164,21 @@ wordWrap lineLength lineText
         | otherwise = softWrap hardwrappedText (textIndex -1)
 
 
+-- |
+-- Record for screen dimensions.
 data ScreenDimensions = ScreenDimensions {
     screenRows :: Int,
     screenColumns :: Int
   } deriving Show
 
 
+-- |
+-- Perform pagination of the text and add status line.
+-- Take care of wrapping lines longer than the width of the terminal.
 paginate :: ScreenDimensions -> FileInfo -> Text.Text -> [Text.Text]
 paginate (ScreenDimensions rows cols) finfo text =
     let
-        rows' = rows - 2
+        rows' = rows - 2  -- consider status line and empty line at bottom
         wrappedLines = concatMap (wordWrap cols) (Text.lines text)
         pages = map (Text.unlines . padTo rows') $ groupsOf rows' wrappedLines
         pageCount = length pages
@@ -154,6 +190,9 @@ paginate (ScreenDimensions rows cols) finfo text =
             take lineCount $ rowsToPad <> repeat ""
 
 
+-- |
+-- Determine the size of the terminal.
+-- This code depends on the OS and a tool named "tput".
 getTerminalSize :: IO ScreenDimensions
 getTerminalSize =
     case System.Info.os of
@@ -170,6 +209,8 @@ getTerminalSize =
             return $ ScreenDimensions lines' cols'
 
 
+-- |
+-- Record holding the information required for the status line.
 data FileInfo = FileInfo {
     filePath :: FilePath,
     fileSize :: Int,
@@ -180,6 +221,8 @@ data FileInfo = FileInfo {
 } deriving Show
 
 
+-- |
+-- Determine relevant information of the file to view.
 fileInfo :: FilePath -> IO  FileInfo
 fileInfo filePath = do
     perms <- Directory.getPermissions filePath
@@ -195,6 +238,9 @@ fileInfo filePath = do
     }
 
 
+-- |
+-- Format the status line.
+-- Consider the case of terminal width less than the length of the status line.
 formatFileInfo :: FileInfo -> Int -> Int -> Int -> Text.Text
 formatFileInfo FileInfo{..} maxWidth totalPages currentPage =
     let
