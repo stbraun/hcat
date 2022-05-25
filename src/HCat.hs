@@ -108,7 +108,7 @@ showHelp page pages = do
     putStrLn "=== HCat Help ==="
     resetVideo
     putStrLn ""
-    putStrLn "usage: HCat <filepath>"
+    putStrLn "usage: hcat <filepath>"
     putStrLn ""
     putStrLn "Commands:"
     putStrLn "h - show this help"
@@ -190,9 +190,13 @@ paginate (ScreenDimensions rows cols) finfo text =
             take lineCount $ rowsToPad <> repeat ""
 
 
--- |
--- Determine the size of the terminal.
--- This code depends on the OS and a tool named "tput".
+{- |
+Determine the size of the terminal.
+This code depends on the OS and a tool named "tput".
+
+>>> getTerminalSize
+ScreenDimensions {screenRows = 67, screenColumns = 103}
+-}
 getTerminalSize :: IO ScreenDimensions
 getTerminalSize =
     case System.Info.os of
@@ -212,17 +216,21 @@ getTerminalSize =
 -- |
 -- Record holding the information required for the status line.
 data FileInfo = FileInfo {
-    filePath :: FilePath,
-    fileSize :: Int,
-    fileMTime :: Clock.UTCTime,
-    fileReadable :: Bool,
-    fileWriteable :: Bool,
-    fileExecutable :: Bool
+    filePath :: FilePath,       -- ^ path to the file
+    fileSize :: Int,            -- ^ file size in bytes
+    fileMTime :: Clock.UTCTime, -- ^ last modification time
+    fileReadable :: Bool,       -- ^ is file readable
+    fileWriteable :: Bool,      -- ^ is file writeable
+    fileExecutable :: Bool      -- ^ is file executable
 } deriving Show
 
 
--- |
--- Determine relevant information of the file to view.
+{- |
+Determine relevant information of the file to view.
+
+>>>  fileInfo "src/HCat.hs"
+FileInfo {filePath = "src/HCat.hs", fileSize = 8450, fileMTime = 2022-05-21 15:18:59.607415167 UTC, fileReadable = True, fileWriteable = True, fileExecutable = False}
+-}
 fileInfo :: FilePath -> IO  FileInfo
 fileInfo filePath = do
     perms <- Directory.getPermissions filePath
@@ -238,9 +246,22 @@ fileInfo filePath = do
     }
 
 
--- |
--- Format the status line.
--- Consider the case of terminal width less than the length of the status line.
+{- |
+Format the status line.
+Consider the case of terminal width less than the length of the status line.
+
+In the first example maxWidth is set to 80 and the status line is truncated after the timestamp.
+The trailing ... make this clear.
+
+>>> finfo <- fileInfo "src/HCat.hs"
+>>> formatFileInfo finfo 80 2 1
+"\ESC[7msrc/HCat.hs | permissions: rw- | 8450 bytes | modified: 2022-05-21 15:18:59 |...\ESC[0m"
+
+After increasing the linelength to 90 the complete status line can be rendered.
+
+>>> formatFileInfo finfo 90 2 1
+"\ESC[7msrc/HCat.hs | permissions: rw- | 8450 bytes | modified: 2022-05-21 15:18:59 | page: 1 of 2\ESC[0m"
+-}
 formatFileInfo :: FileInfo -> Int -> Int -> Int -> Text.Text
 formatFileInfo FileInfo{..} maxWidth totalPages currentPage =
     let
