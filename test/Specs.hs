@@ -49,6 +49,19 @@ specHCat = do
         it "shall contain the file size." $
             (formatFileInfo fInfo 120 23 1) `shouldSatisfy`
                 (contains $ show $ fileSize fInfo)
+    describe "wordWrap" $ do
+        it "shall wrap the line at the last possible word." $
+            (wordWrap 11 (Text.pack "This is a line.") !! 1)
+                `shouldBe` (Text.pack "line.")
+        it "shall not wrap if the line is longer than the text." $
+            (length $ wordWrap 16 (Text.pack "This is a line."))
+                `shouldBe` 1
+        it "shall not wrap if the line is as long as the text." $
+            (length $ wordWrap 15 (Text.pack "This is a line."))
+                `shouldBe` 1
+        it "shall hard wrap if the line is shorter than the first word of the text." $
+            (wordWrap 11 (Text.pack "This-is-a-line.") !! 1)
+                `shouldBe` (Text.pack "ine.")
 
 
 -- |
