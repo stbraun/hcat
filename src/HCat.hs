@@ -131,24 +131,26 @@ showPages page pages = do
     cont <- getContinue
     case cont of
         Help -> showHelp page pages
-        Previous -> if page > 1
-                    then showPages (page - 1) pages
-                    else (
+        Previous -> if isFirstPage
+                    then (
                         do
                             beep
                             showPages 0 pages)
-        Continue -> if (page >= ((length pages) - 1))
+                    else showPages (page - 1) pages
+        Continue -> if isLastPage
                     then (
                         do
                             beep
                             showPages (page) pages)
-                    else (
-                        do
-                            showPages (page + 1) pages)
+                    else (showPages (page + 1) pages)
         Cancel  -> return ()
     where
         beep :: IO ()
         beep = putStr "\a"
+        isFirstPage :: Bool
+        isFirstPage = page == 0
+        isLastPage :: Bool
+        isLastPage = page + 1 == (length pages)
 
 -- |
 -- Group text into pages.
