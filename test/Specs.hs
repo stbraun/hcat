@@ -62,7 +62,50 @@ specHCat = do
         it "shall hard wrap if the line is shorter than the first word of the text." $
             (wordWrap 11 (Text.pack "This-is-a-line.") !! 1)
                 `shouldBe` (Text.pack "ine.")
+    describe "incCurrentPage" $ do
+        it "shall do nothing if page is already last page." $
+            (currentPage (incCurrentPage (File 1 [Text.pack "T1", Text.pack "T2"])))
+                `shouldBe` 1
+        it "shall increment the page number if page is not already last page." $
+            (currentPage (incCurrentPage (File 0 [Text.pack "T1", Text.pack "T2"])))
+                `shouldBe` 1
+    describe "decCurrentPage" $ do
+        it "shall do nothing if page is already first page." $
+            (currentPage (decCurrentPage (File 0 [Text.pack "T1", Text.pack "T2"])))
+                `shouldBe` 0
+        it "shall decrement the page number if page is not already first page." $
+            (currentPage (decCurrentPage (File 1 [Text.pack "T1", Text.pack "T2"])))
+                `shouldBe` 0
+    describe "incPage" $ do
+        it "shall increment the page number of the top-level record." $
+            (currentPage $ head (getFileStack $ incPage (stack 0))) `shouldBe` 1
+    describe "decPage" $ do
+        it "shall decrement the page number of the top--level record" $
+            (currentPage $ head (getFileStack $ decPage (stack 2))) `shouldBe` 1
+    describe "getText" $ do
+        it "shall return the text of the top-level record." $
+            (head (getText (stack 0))) `shouldSatisfy`
+                (contains "The first line.")
+        it "shall return all lines of the text." $
+            (length (getText (stack 0))) `shouldBe` 3
+    describe "getPageNumber" $ do
+        it "shall return the current page of the top-level record." $
+            (getPageNumber (stack 21)) `shouldBe` 21
 
+
+-- |
+-- Provide a sample file stack.
+-- Initialize the page number of the top-level record with given value.
+stack :: Int -> FileStack
+stack page = FileStack [
+          File {currentPage = page,
+                text = [ Text.pack "The first line."
+                       , Text.pack "The second sentence spans"
+                       , Text.pack "lines 2 and 3."]},
+          File {currentPage = 2,
+                text = [ Text.pack "A first line."
+                , Text.pack "A second sentence spans"
+                , Text.pack "lines 2 and 3."]}]
 
 -- |
 -- Checks whether string is contained in text.

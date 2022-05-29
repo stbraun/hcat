@@ -20,11 +20,97 @@ import qualified Data.ByteString as BS
 import qualified Data.Text as Text
 import qualified Data.Text.IO as TextIO
 import qualified Control.Exception as Exception
+import qualified Data.Time as Time
 import qualified Data.Time.Clock as Clock
 import qualified Data.Time.Format as TimeFormat
 import qualified Data.Time.Clock.POSIX as PosixClock
 import qualified System.Directory as Directory
 import qualified Text.Printf as Printf
+
+
+-- |
+-- File represents a text and its current page counter.
+data File = File {
+    currentPage :: Int,
+    text        :: [Text.Text]
+} deriving Show
+
+
+data FileStack = FileStack [File]
+    deriving Show
+
+
+-- |
+-- Get the stack without constructor.
+getFileStack :: FileStack -> [File]
+getFileStack (FileStack st) = st
+
+
+-- |
+-- Increment page counter of given File.
+-- If page is already on the last page just leave it.
+incCurrentPage :: File -> File
+incCurrentPage f
+    | currentPage f == length (text f) - 1 = f
+    | otherwise = File (1 + currentPage f) (text f)
+
+
+-- |
+-- Decrement page counter of given File.
+-- If page counter is zero just leave it.
+decCurrentPage :: File -> File
+decCurrentPage f
+    | currentPage f == 0 = f
+    | otherwise = File ((currentPage f) - 1) (text f)
+
+
+-- |
+-- Increment page number of top-level record.
+incPage :: FileStack -> FileStack
+incPage st = FileStack $ (incCurrentPage (head $ getFileStack st)) : (tail $ getFileStack st)
+
+
+-- |
+-- Decrement page number of top-level record.
+decPage :: FileStack -> FileStack
+decPage st = FileStack $ (decCurrentPage (head $ getFileStack st)) : (tail $ getFileStack st)
+
+
+-- |
+-- Get the current page number of the top-level record.
+getPageNumber :: FileStack -> Int
+getPageNumber st = currentPage (head $ getFileStack st)
+
+
+-- |
+-- Get the text of the top-level record.
+getText :: FileStack -> [Text.Text]
+getText st = text (head $ getFileStack st)
+
+
+-- |
+-- Return the number of Files on FileStack.
+stackSize :: FileStack -> Int
+stackSize (FileStack files) = length files
+
+
+-- |
+-- True of stack is empty.
+isStackEmpty :: FileStack -> Bool
+isStackEmpty (FileStack files) = length files == 0
+
+
+-- |
+-- Append a new File to FileStack.
+addFile :: File -> FileStack -> FileStack
+addFile f stack = FileStack (f : getFileStack stack)
+
+-- |
+-- Drop top-level file from file stack.
+dropFile :: FileStack -> FileStack
+dropFile stack
+    | isStackEmpty stack = error "Cannot drop file: stack is already empty."
+    | otherwise = FileStack (tail $ getFileStack stack)
 
 
 -- |
@@ -37,7 +123,7 @@ runHCat = do
     hSetBuffering stdout NoBuffering
     finfo <- fileInfo targetFilePath
     let pages = paginate termSize finfo contents
-    showPages 0 pages
+    showPages (FileStack [File 0 pages])
 
 
 -- |
@@ -73,14 +159,14 @@ clearScreen = BS.putStr "\^[[1J\^[[1;1H"
 
 -- |
 -- Switch video to reverse mode.
-reverseVideo :: IO ()
-reverseVideo = BS.putStr "\^[[7m"
+reverseVideo :: String
+reverseVideo = "\^[[7m"
 
 
 -- |
 -- Reset video to normal mode.
-resetVideo :: IO ()
-resetVideo = BS.putStr "\^[[0m"
+resetVideo :: String
+resetVideo = "\^[[0m"
 
 
 -- |
@@ -100,57 +186,71 @@ getContinue = do
 
 
 -- |
--- Show a simple help screen.
-showHelp:: Int -> [Text.Text] -> IO ()
-showHelp page pages = do
-    clearScreen
-    reverseVideo
-    putStrLn "=== HCat Help ==="
-    resetVideo
-    putStrLn ""
-    putStrLn "usage: hcat <filepath>"
-    putStrLn ""
-    putStrLn "Commands:"
-    putStrLn "h - show this help"
-    putStrLn "<space> - next page"
-    putStrLn "n - next page"
-    putStrLn "p - previous page"
-    putStrLn "q - quit"
-    putStrLn ""
-    putStrLn "Press any key to return to file view."
-    hGetChar stdin
-    showPages page pages
+-- Create help File.
+createHelp:: ScreenDimensions -> Clock.UTCTime -> FileStack -> FileStack
+createHelp termSize currentTime stack =
+    addFile file stack
+    where
+        file = File {
+            currentPage = 0
+          , text = paginate termSize fInfo rawText }
+        rawText = Text.pack $
+            reverseVideo
+            ++ "=== HCat Help ===\n"
+            ++ resetVideo
+            ++ "\nusage: hcat <filepath>\n\n"
+            ++ "Commands:\n"
+            ++ "h - show this help\n"
+            ++ "<space> - next page\n"
+            ++ "n - next page\n"
+            ++ "p - previous page\n"
+            ++ "q - quit current file\n"
+        fInfo = FileInfo {
+            filePath = "Help"
+          , fileSize = Text.length rawText
+          , fileMTime = currentTime
+          , fileReadable = False
+          , fileWriteable = False
+          , fileExecutable = False }
 
 
 -- | Show and navigate pages.
-showPages :: Int -> [Text.Text] -> IO ()
-showPages _ [] = return ()
-showPages page pages = do
-    clearScreen
-    TextIO.putStrLn $ pages !! page
-    cont <- getContinue
-    case cont of
-        Help -> showHelp page pages
-        Previous -> if isFirstPage
-                    then (
-                        do
-                            beep
-                            showPages 0 pages)
-                    else showPages (page - 1) pages
-        Continue -> if isLastPage
-                    then (
-                        do
-                            beep
-                            showPages (page) pages)
-                    else (showPages (page + 1) pages)
-        Cancel  -> return ()
-    where
-        beep :: IO ()
-        beep = putStr "\a"
-        isFirstPage :: Bool
-        isFirstPage = page == 0
-        isLastPage :: Bool
-        isLastPage = page + 1 == (length pages)
+showPages :: FileStack -> IO ()
+showPages stack
+    | isStackEmpty stack = return ()
+    | otherwise = do
+        clearScreen
+        TextIO.putStrLn $ pages !! page
+        cont <- getContinue
+        case cont of
+            Help -> do
+                screenDims <- getTerminalSize
+                currentTime <- Clock.getCurrentTime
+                showPages $ createHelp screenDims currentTime stack
+            Previous -> if isFirstPage
+                        then (
+                            do
+                                beep
+                                showPages stack)
+                        else showPages (decPage stack)
+            Continue -> if isLastPage
+                        then (
+                            do
+                                beep
+                                showPages stack)
+                        else (showPages (incPage stack))
+            Cancel  -> showPages (dropFile stack)
+        where
+            beep :: IO ()
+            beep = putStr "\a"
+            page :: Int
+            page = getPageNumber stack
+            pages :: [Text.Text]
+            pages = getText stack
+            isFirstPage :: Bool
+            isFirstPage = page == 0
+            isLastPage :: Bool
+            isLastPage = page + 1 == (length pages)
 
 -- |
 -- Group text into pages.
